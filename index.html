@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>21st Birthday Quest 🎂</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/canvas-confetti/1.9.3/confetti.browser.min.js"></script>
+<style>
+  body { background: linear-gradient(180deg, #fff1f2 0%, #fff7ed 50%, #fffbeb 100%); min-height: 100vh; }
+  .card { background: rgba(255,255,255,.85); border: 1px solid #fecdd3; border-radius: 1.25rem; box-shadow: 0 6px 20px -8px rgba(244,63,94,.25); }
+  .btn { background: #fb7185; color: #fff; font-weight: 600; padding: .5rem 1rem; border-radius: 9999px; transition: transform .1s, background .2s; }
+  .btn:hover { background: #f43f5e; } .btn:active { transform: scale(.96); }
+  .btn-soft { background: #ffe4e6; color: #be123c; }
+  .btn-soft:hover { background: #fecdd3; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .key-slot { transition: all .4s; }
+  .key-slot.got { background: #fef3c7; border-color: #f59e0b; transform: scale(1.1) rotate(-6deg); box-shadow: 0 0 14px #fcd34d; }
+  .key-slot:not(.got) { filter: grayscale(1); opacity: .45; }
+
+  /* ---- Final puzzle ---- */
+  #puzzle-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; aspect-ratio: 1; transition: gap .6s, border-radius .6s; }
+  .slot { border: 2px dashed #fda4af; border-radius: .75rem; background: #fff1f2; position: relative; overflow: hidden; cursor: pointer; transition: border .6s, border-radius .6s; }
+  .slot.target { outline: 3px solid #f59e0b; }
+  #puzzle-grid.done { gap: 0; border-radius: 1rem; overflow: hidden; box-shadow: 0 10px 30px -8px rgba(244,63,94,.5); }
+  #puzzle-grid.done .slot { border: 0; border-radius: 0; outline: none; cursor: default; }
+  .piece { position: absolute; inset: 0; background-repeat: no-repeat; background-size: 200% 200%; }
+  .piece.sel { outline: 4px solid #f59e0b; outline-offset: -4px; }
+  .thumb { overflow: hidden; width: 72px; height: 72px; border-radius: .75rem; border: 2px solid #fda4af; background-size: 200% 200%; cursor: pointer; }
+  .thumb.sel { outline: 4px solid #f59e0b; }
+
+  /* ---- Modal ---- */
+  #modal { position: fixed; inset: 0; background: rgba(76,5,25,.45); display: none; align-items: center; justify-content: center; padding: 1rem; z-index: 50; }
+  #modal.open { display: flex; }
+
+  /* ---- Games ---- */
+  #arena { position: relative; height: 340px; overflow: hidden; border-radius: 1rem; background: linear-gradient(#e0f2fe, #fde7f3); touch-action: none; user-select: none; }
+  .fall { position: absolute; top: 0; left: 0; font-size: 30px; will-change: transform; }
+  #basket { position: absolute; bottom: 4px; left: 0; font-size: 44px; will-change: transform; }
+  .tile { background: #fff; border: 2px solid #fda4af; border-radius: .75rem; padding: .35rem .7rem; font-weight: 700; color: #9f1239; }
+  .tile:hover { background: #ffe4e6; }
+  .wslot { min-width: 64px; min-height: 42px; border: 2px dashed #fda4af; border-radius: .75rem; display: inline-flex; align-items: center; justify-content: center; }
+  @keyframes shake { 25% { transform: translateX(-6px) } 75% { transform: translateX(6px) } }
+  .shake { animation: shake .3s 2; }
+  @keyframes pulse-ring { 0% { r: 14; opacity: 1 } 100% { r: 46; opacity: 0 } }
+  .hint-ring { animation: pulse-ring 1.2s infinite; fill: none; stroke: #f59e0b; stroke-width: 4; }
+  @keyframes pop { 0% { transform: scale(.6); opacity: 0 } 100% { transform: scale(1); opacity: 1 } }
+  .pop { animation: pop .4s ease-out; }
+</style>
+</head>
+<body class="text-rose-950 font-sans">
+
+<!-- ============ HEADER ============ -->
+<header class="text-center px-4 pt-8 pb-4">
+  <h1 class="text-3xl sm:text-5xl font-extrabold text-rose-500">🎂 21st Birthday Quest 🎂</h1>
+  <p class="mt-2 text-amber-700">Complete 4 challenges, collect 4 keys, unlock a surprise!</p>
+  </header>
+<!-- Sticky so keys stay reachable while dragging down to the chests -->
+<div class="sticky top-0 z-40 py-2 bg-rose-50/90 backdrop-blur border-y border-rose-100">
+  <div id="inventory" class="flex justify-center gap-3" aria-label="Key inventory"></div>
+  <p class="text-center text-xs text-amber-700 mt-1">Drag a 🔑 onto its chest below (or tap the key, then tap the chest)</p>
+</div>
+
+<main class="max-w-3xl mx-auto px-4 pb-12 space-y-10">
+  <!-- ============ QUESTS ============ -->
+  <section>
+    <h2 class="text-xl font-bold text-rose-600 mb-3">✨ Quests</h2>
+    <div id="quests" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
+  </section>
+
+  <!-- ============ CHESTS ============ -->
+  <section>
+    <h2 class="text-xl font-bold text-rose-600 mb-3">🧰 Chests</h2>
+    <div id="chests" class="grid grid-cols-2 sm:grid-cols-4 gap-3"></div>
+  </section>
+
+  <!-- ============ FINAL PUZZLE ============ -->
+  <section>
+    <h2 class="text-xl font-bold text-rose-600 mb-1">🧩 The Final Puzzle</h2>
+    <p id="puzzle-help" class="text-sm text-amber-700 mb-3">Tap a piece to select it, then tap a square to place it. Tap a placed piece to swap.</p>
+    <div class="card p-4 max-w-sm mx-auto">
+      <div id="puzzle-grid"></div>
+      <div id="tray" class="mt-4 min-h-[80px] flex flex-wrap gap-2 justify-center items-center rounded-xl bg-amber-50 p-2">
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="text-center pb-8">
+  <button id="reset" class="text-xs text-rose-300 hover:text-rose-500 underline">Reset progress</button>
+</footer>
+
+<!-- ============ MODAL (games + final card) ============ -->
+<div id="modal">
+  <div class="card bg-white w-full max-w-lg max-h-[92vh] overflow-y-auto p-5 relative">
+    <button id="modal-close" class="absolute top-2 right-3 text-2xl text-rose-400 hover:text-rose-600" aria-label="Close">×</button>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+   CONFIG — edit these to customize
+   ===================================================================== */
+const CONFIG = {
+  // Set to a photo URL (e.g. "photos/us.jpg") to replace the placeholder.
+  // Use ONE square image; it is sliced into 4 quadrants automatically.
+  PHOTO_URL: null,
+
+  // One image per chest (1: top-left, 2: top-right, 3: bottom-left, 4: bottom-right), revealed when that chest opens.
+  CHEST_IMAGES: ['images/top_left.jpg', 'images/top_right.jpg', 'images/bottom_left.jpg', 'images/bottom_right.jpg'],
+
+  CATCH: { goal: 20, seconds: 25, items: ['❤️', '🎂', '🎈'], bomb: '💣', bombChance: 0.4, bombSpeedMult: 1.6 },
+
+  CIPHER_PHRASE: 'SEE U IN 23 DAYS, HAPPY BIRTHDAY BABY!',
+
+  TRIVIA: [
+    { q: 'What is the difference between a cyclops and a human?', options: ['Eye', 'Feet', 'Ears', 'Nose'], answer: 0, failMsg: 'Count the facial features again! 👀' },
+    { q: 'What is the opposite of hate?', options: ['Friendship', 'Peace', 'Love', 'Kindness'], answer: 2, failMsg: "Think of what's between us! ❤️" },
+    { q: 'Between the two of us, who is neater?', options: ['Me', 'You', 'Neither', 'Both equal'], answer: 1, failMsg: 'Aint no way u think that 🧹' },
+    { q: 'What do I call you the most?', options: ['Honey', 'Sweetheart', 'Darling', 'Baby'], answer: 3, failMsg: 'You hear this everyday! 🥰' },
+  ],
+  // Banner shown when all trivia answers are solved
+  TRIVIA_REVEAL: '👁️ eye + ❤️ love + 🧹 you + 🍼 baby = <b>eye love you baby!</b>',
+
+  WALDO: { target: '🧸', targetName: 'the teddy bear', decoys: ['🐻', '🐼', '🐨', '🦊', '🐰', '🐶', '🎈', '🍰', '🌸', '⭐', '🎁', '🍭'] },
+
+  FINAL_MESSAGE: {
+    title: 'Happy Birthday, Baby! 🎉',
+    body: 'Yaay u beat the game! U found all the keys to my heart hehe click next for more!',
+  },
+};
+
+const QUESTS = [
+  { id: 0, icon: '🎈', title: 'Catch the Goodies', desc: 'Catch 20 falling goodies (dodge the bombs!) before time runs out.' },
+  { id: 1, icon: '🔤', title: 'Secret Message', desc: 'Unscramble the words to reveal a message.' },
+  { id: 2, icon: '💭', title: 'Us Trivia', desc: 'How well do you know us?' },
+  { id: 3, icon: '🔍', title: "Where's Teddy", desc: 'Find the hidden character in the crowd.' },
+];
+
+/* =====================================================================
+   PLACEHOLDER IMAGE — one SVG, sliced via CSS background-position
+   ===================================================================== */
+function placeholderSvg() {
+  const hearts = [[60,70],[330,60],[90,330],[320,320],[200,200]].map(([x,y],i) =>
+    `<text x="${x}" y="${y}" font-size="${40+i*6}" text-anchor="middle">${['💖','🎈','🎂','🌸','❤️'][i]}</text>`).join('');
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
+    <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fecdd3"/><stop offset=".5" stop-color="#fed7aa"/><stop offset="1" stop-color="#fde68a"/>
+    </linearGradient></defs>
+    <rect width="400" height="400" fill="url(#g)"/>
+    <circle cx="200" cy="200" r="130" fill="#fff" fill-opacity=".5"/>
+    ${hearts}
+    <text x="200" y="195" font-size="30" font-family="sans-serif" font-weight="700" fill="#e11d48" text-anchor="middle">Your photo</text>
+    <text x="200" y="230" font-size="30" font-family="sans-serif" font-weight="700" fill="#e11d48" text-anchor="middle">goes here</text>
+    <path d="M200 0V400M0 200H400" stroke="#fff" stroke-opacity=".0"/>
+  </svg>`;
+  return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
+}
+const PHOTO = CONFIG.PHOTO_URL ? `url("${CONFIG.PHOTO_URL}")` : placeholderSvg();
+// background-position for each quadrant: 0=TL, 1=TR, 2=BL, 3=BR
+const QUAD_POS = ['0% 0%', '100% 0%', '0% 100%', '100% 100%'];
+const QUAD_NAMES = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
+
+/* =====================================================================
+   STATE + PERSISTENCE
+   ===================================================================== */
+const defaultState = () => ({
+  keys: [false, false, false, false],    // key i earned
+  chests: [false, false, false, false],  // chest i opened (piece i collected)
+  grid: [null, null, null, null],        // grid slot -> piece id
+  solved: false,                         // final puzzle completed
+});
+// In-memory only: nothing is persisted, so every page load starts fresh
+let state = defaultState();
+function saveState() {}
+
+/* =====================================================================
+   HELPERS
+   ===================================================================== */
+const $ = (sel) => document.querySelector(sel);
+const shuffle = (arr) => { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const rand = (min, max) => min + Math.random() * (max - min);
+const pieceStyle = (id, blur = true) => CONFIG.CHEST_IMAGES[id]
+  ? `background-image:url('${CONFIG.CHEST_IMAGES[id]}');background-position:center;background-size:cover;background-repeat:no-repeat;${state.solved || !blur ? '' : 'filter:blur(10px);'}`
+  : `background-image:${PHOTO};background-position:${QUAD_POS[id]};background-size:200% 200%;`;
+
+/* =====================================================================
+   MODAL
+   ===================================================================== */
+let activeCleanup = null;
+function openModal(html) { $('#modal-body').innerHTML = html; $('#modal').classList.add('open'); }
+function closeModal() {
+  if (activeCleanup) { activeCleanup(); activeCleanup = null; }
+  $('#modal').classList.remove('open'); $('#modal-body').innerHTML = '';
+}
+$('#modal-close').onclick = closeModal;
+$('#modal').addEventListener('pointerdown', (e) => { if (e.target.id === 'modal') closeModal(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+
+/* =====================================================================
+   RENDER: header, quests, chests, puzzle
+   ===================================================================== */
+function renderInventory() {
+  $('#inventory').innerHTML = state.keys.map((got, i) => {
+    const used = state.chests[i];
+    if (got && !used) return `<div class="key-slot got w-14 h-14 rounded-2xl border-2 flex items-center justify-center text-2xl cursor-grab ${selectedKey === i ? 'ring-4 ring-amber-400' : ''}" data-key="${i}" style="touch-action:none;user-select:none;-webkit-user-select:none" title="Drag me onto chest ${i + 1}!">🔑</div>`;
+    return `<div class="key-slot w-14 h-14 rounded-2xl border-2 border-rose-200 bg-white flex items-center justify-center text-2xl" title="Key ${i + 1}: ${used ? 'used' : 'locked'}">${used ? '✅' : '🔒'}</div>`;
+  }).join('');
+  document.querySelectorAll('[data-key]').forEach((k) => { k.addEventListener('pointerdown', (e) => startKeyDrag(e, +k.dataset.key)); k.addEventListener('dragstart', (e) => e.preventDefault()); });
+}
+
+// Key drag & drop (pointer events: works for mouse and touch). A plain tap
+// selects the key; tapping a chest then uses it.
+let selectedKey = null;
+function startKeyDrag(e, id) {
+  e.preventDefault();
+  const sx = e.clientX, sy = e.clientY;
+  let ghost = null;
+  const chestAt = (x, y) => { const el = document.elementFromPoint(x, y); return el && el.closest('[data-chest]'); };
+  const move = (ev) => {
+    if (!ghost && Math.hypot(ev.clientX - sx, ev.clientY - sy) > 6) {
+      ghost = document.createElement('div');
+      ghost.textContent = '🔑';
+      ghost.style.cssText = 'position:fixed;z-index:100;font-size:44px;pointer-events:none;transform:translate(-50%,-50%)';
+      document.body.appendChild(ghost);
+    }
+    if (!ghost) return;
+    ghost.style.left = ev.clientX + 'px'; ghost.style.top = ev.clientY + 'px';
+    document.querySelectorAll('[data-chest]').forEach((c) => c.classList.remove('ring-4', 'ring-amber-400'));
+    const c = chestAt(ev.clientX, ev.clientY); if (c) c.classList.add('ring-4', 'ring-amber-400');
+  };
+  const up = (ev) => {
+    window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up);
+    if (!ghost) { selectedKey = selectedKey === id ? null : id; renderInventory(); return; } // tap = select
+    ghost.remove();
+    const c = chestAt(ev.clientX, ev.clientY);
+    if (c) useKey(id, +c.dataset.chest);
+    renderChests();
+  };
+  window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+}
+
+// Try to unlock chest `chestId` with key `keyId`
+function useKey(keyId, chestId) {
+  selectedKey = null;
+  if (!state.keys[keyId] || state.chests[chestId]) return;
+  if (keyId !== chestId) {
+    const el = document.querySelector(`[data-chest="${chestId}"]`);
+    if (el) { el.classList.add('shake'); setTimeout(() => el.classList.remove('shake'), 700); }
+    return;
+  }
+  state.chests[chestId] = true; saveState();
+  renderAll();
+  fireConfetti({ particleCount: 40, spread: 60, origin: { y: 0.6 } });
+}
+
+function renderQuests() {
+  $('#quests').innerHTML = QUESTS.map((q) => {
+    const done = state.keys[q.id];
+    return `<div class="card p-4 flex flex-col gap-2">
+      <div class="flex items-center gap-3">
+        <div class="text-3xl">${q.icon}</div>
+        <div class="flex-1"><div class="font-bold">${q.title}</div><div class="text-sm text-amber-800">${q.desc}</div></div>
+        ${done ? '<div class="text-2xl" title="Key earned">🔑</div>' : ''}
+      </div>
+      <button class="btn ${done ? 'btn-soft' : ''}" data-quest="${q.id}">${done ? 'Play again' : 'Start'}</button>
+    </div>`;
+  }).join('');
+  document.querySelectorAll('[data-quest]').forEach((b) => b.onclick = () => startGame(+b.dataset.quest));
+}
+
+function renderChests() {
+  $('#chests').innerHTML = [0, 1, 2, 3].map((i) => {
+    if (state.chests[i]) return `<div class="card p-2 text-center"><div class="w-full aspect-square rounded-xl overflow-hidden"><div class="w-full h-full" style="${pieceStyle(i)}"></div></div><div class="text-xs mt-1 text-amber-700">🔓 Unlocked!</div></div>`;
+    const ready = state.keys[i];
+    return `<div data-chest="${i}" class="card p-3 text-center transition select-none ${ready ? 'border-amber-400 border-2' : 'opacity-60'} ${selectedKey !== null ? 'cursor-pointer' : ''}">
+      <div class="relative inline-block text-4xl ${ready ? '' : 'grayscale'}">🧰<span class="absolute -bottom-1 -right-2 text-xl">🔒</span></div>
+      <div class="text-xs mt-1 text-amber-700">${ready ? 'Drop key ' + (i + 1) + ' here!' : 'Locked · needs key ' + (i + 1)}</div>
+    </div>`;
+  }).join('');
+  document.querySelectorAll('[data-chest]').forEach((c) => c.onclick = () => {
+    if (selectedKey !== null) { useKey(selectedKey, +c.dataset.chest); renderAll(); }
+  });
+}
+
+// Selection for click-to-place: { piece, from: 'tray' | slotIndex } or null
+let selected = null;
+
+function renderPuzzle() {
+  const grid = $('#puzzle-grid');
+  grid.classList.toggle('done', state.solved);
+  grid.innerHTML = state.grid.map((p, i) => {
+    const isSel = selected && selected.from === i;
+    return `<div class="slot ${selected && !state.solved ? 'target' : ''}" data-slot="${i}" aria-label="Slot ${i + 1}">
+      ${p !== null ? `<div class="piece ${isSel ? 'sel' : ''}" style="${pieceStyle(p, false)}"></div>` : `<div class="absolute inset-0 flex items-center justify-center text-rose-300 text-2xl">${i + 1}</div>`}
+    </div>`;
+  }).join('');
+  grid.querySelectorAll('[data-slot]').forEach((s) => s.onclick = () => clickSlot(+s.dataset.slot));
+
+  // Tray: opened pieces not currently on the grid
+  const tray = $('#tray');
+  const inTray = [0, 1, 2, 3].filter((p) => state.chests[p] && !state.grid.includes(p));
+  if (state.solved) tray.innerHTML = '<div class="text-amber-700 font-semibold">🎉 Puzzle complete!</div>';
+  else tray.innerHTML = inTray.length
+    ? inTray.map((p) => `<div class="thumb ${selected && selected.piece === p ? 'sel' : ''}" data-piece="${p}" title="Piece ${QUAD_NAMES[p]}"><div class="w-full h-full" style="${pieceStyle(p)}"></div></div>`).join('')
+    : `<div class="text-sm text-amber-700">${state.chests.some(Boolean) ? 'All collected pieces are placed.' : 'Open chests to collect pieces.'}</div>`;
+  tray.querySelectorAll('[data-piece]').forEach((t) => t.onclick = (e) => { e.stopPropagation(); clickTrayPiece(+t.dataset.piece); });
+}
+
+function clickTrayPiece(p) {
+  if (state.solved) return;
+  selected = selected && selected.piece === p ? null : { piece: p, from: 'tray' };
+  renderPuzzle();
+}
+
+function clickSlot(i) {
+  if (state.solved) return;
+  const here = state.grid[i];
+  if (!selected) {                       // nothing selected: pick up placed piece
+    if (here !== null) selected = { piece: here, from: i };
+  } else if (selected.from === i) {      // click same piece: deselect
+    selected = null;
+  } else {                               // place / swap
+    if (selected.from !== 'tray') state.grid[selected.from] = here; // swap back (null if empty)
+    state.grid[i] = selected.piece;
+    selected = null;
+    saveState();
+    checkSolved();
+  }
+  renderPuzzle();
+}
+
+// Clicking empty tray space returns a selected placed piece to the tray
+$('#tray').onclick = () => {
+  if (selected && selected.from !== 'tray') { state.grid[selected.from] = null; selected = null; saveState(); renderPuzzle(); }
+};
+
+function checkSolved() {
+  if (state.solved || !state.grid.every((p, i) => p === i)) return;
+  state.solved = true; saveState(); renderChests();
+  setTimeout(celebrate, 700); // wait for gap-close animation
+}
+
+// Confetti is cosmetic: never let a missing/blocked CDN script break game logic
+function fireConfetti(opts) { try { if (typeof confetti === 'function') confetti(opts); } catch {} }
+
+function celebrate() {
+  const end = Date.now() + 2000;
+  (function frame() {
+    fireConfetti({ particleCount: 6, angle: 60, spread: 70, origin: { x: 0 } });
+    fireConfetti({ particleCount: 6, angle: 120, spread: 70, origin: { x: 1 } });
+    if (Date.now() < end) requestAnimationFrame(frame);
+  })();
+  showFinalCard();
+}
+
+function showFinalCard() {
+  openModal(`<div class="text-center space-y-3 pop">
+    <div class="grid grid-cols-2 gap-0 w-full max-w-xs mx-auto aspect-square rounded-2xl shadow-lg overflow-hidden">${[0, 1, 2, 3].map((i) => `<div class="overflow-hidden"><div class="w-full h-full" style="${pieceStyle(i)};transform:scale(1.01)"></div></div>`).join('')}</div>
+    <h2 class="text-2xl font-extrabold text-rose-500">${CONFIG.FINAL_MESSAGE.title}</h2>
+    <p class="text-rose-900">${CONFIG.FINAL_MESSAGE.body}</p>
+    <button class="btn" id="fin-next">Next 💖</button>
+  </div>`);
+  $('#fin-next').onclick = showSquishCard;
+}
+
+function showSquishCard() {
+  openModal(`<div class="text-center space-y-3 pop">
+    <img src="images/squish.jpg" alt="squish" class="w-full max-w-xs mx-auto rounded-2xl shadow-lg">
+    <button class="btn" id="fin-close">Close 💖</button>
+  </div>`);
+  $('#fin-close').onclick = closeModal;
+}
+
+function renderAll() { renderInventory(); renderQuests(); renderChests(); renderPuzzle(); }
+
+function awardKey(id) {
+  state.keys[id] = true; saveState();
+  renderAll();
+  fireConfetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
+}
+
+/* =====================================================================
+   MINIGAMES — each takes (el, win) and returns an optional cleanup fn
+   ===================================================================== */
+function startGame(id) {
+  const q = QUESTS[id];
+  openModal(`<h3 class="text-xl font-bold text-rose-600 mb-3">${q.icon} ${q.title}</h3><div id="game"></div>`);
+  const win = () => awardKey(id);
+  const games = [catchGame, cipherGame, triviaGame, waldoGame];
+  activeCleanup = games[id]($('#game'), win) || null;
+}
+
+const winPanel = (msg) => `<div class="text-center space-y-3 pop"><div class="text-5xl">🔑</div><p class="font-bold text-rose-600">${msg}</p><button class="btn" onclick="closeModal()">Collect key</button></div>`;
+
+/* ---------- 1. Catch game ---------- */
+function catchGame(el, win) {
+  const { goal, seconds, items, bomb, bombChance, bombSpeedMult } = CONFIG.CATCH;
+  let raf, spawnTimer, running = false, caught, timeLeft, last, drops, basketX, keysDown = {};
+  el.innerHTML = `
+    <div class="flex justify-between text-sm font-semibold mb-2"><span id="c-score"></span><span id="c-time"></span></div>
+    <div id="arena"><div id="basket">🧺</div>
+      <div id="c-overlay" class="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-white/70 text-center p-4"></div>
+    </div>
+    <p class="text-xs text-amber-700 mt-2">Drag / move on the arena (or use ← →) to steer the basket. 💣 costs you 1 point!</p>`;
+  const arena = $('#arena'), basket = $('#basket'), overlay = $('#c-overlay');
+
+  function overlayMsg(msg, btn) {
+    overlay.style.display = 'flex';
+    overlay.innerHTML = `<p class="font-bold text-rose-600">${msg}</p><button class="btn" id="c-go">${btn}</button>`;
+    $('#c-go').onclick = start;
+  }
+  function start() {
+    overlay.style.display = 'none';
+    arena.querySelectorAll('.fall').forEach((n) => n.remove());
+    caught = 0; timeLeft = seconds; drops = []; basketX = arena.clientWidth / 2; last = performance.now(); running = true;
+    hud(); spawnTimer = setInterval(spawn, 420); raf = requestAnimationFrame(tick);
+  }
+  function stop() { running = false; clearInterval(spawnTimer); cancelAnimationFrame(raf); }
+  function hud() { $('#c-score').textContent = `Caught: ${caught}/${goal}`; $('#c-time').textContent = `⏱ ${Math.ceil(timeLeft)}s`; }
+  function flash() { // red flash when a bomb is caught
+    arena.style.boxShadow = 'inset 0 0 40px 10px rgba(239,68,68,.7)';
+    setTimeout(() => (arena.style.boxShadow = ''), 200);
+  }
+  function spawn() {
+    const node = document.createElement('div');
+    const isBomb = Math.random() < bombChance;
+    node.className = 'fall'; node.textContent = isBomb ? bomb : items[Math.floor(Math.random() * items.length)];
+    arena.appendChild(node);
+    drops.push({ node, isBomb, x: rand(0, arena.clientWidth - 34), y: -34, v: rand(110, 190) * (isBomb ? bombSpeedMult : 1) });
+  }
+  function tick(now) {
+    if (!running) return;
+    const dt = Math.min((now - last) / 1000, 0.05); last = now;
+    timeLeft -= dt;
+    const W = arena.clientWidth, H = arena.clientHeight;
+    if (keysDown.ArrowLeft) basketX -= 380 * dt;
+    if (keysDown.ArrowRight) basketX += 380 * dt;
+    basketX = Math.max(22, Math.min(W - 22, basketX));
+    basket.style.transform = `translateX(${basketX - 22}px)`;
+
+    drops = drops.filter((d) => {
+      d.y += d.v * dt;
+      const hit = d.y + 30 >= H - 44 && d.y < H - 10 && Math.abs(d.x + 15 - basketX) < 34;
+      if (hit) {
+        if (d.isBomb) { caught = Math.max(0, caught - 1); flash(); } else caught++;
+        d.node.remove(); return false;
+      }
+      if (d.y > H) { d.node.remove(); return false; }
+      d.node.style.transform = `translate(${d.x}px,${d.y}px)`;
+      return true;
+    });
+    hud();
+    if (caught >= goal) { stop(); win(); el.innerHTML = winPanel('You caught them all! 💕'); return; }
+    if (timeLeft <= 0) { stop(); overlayMsg(`Time's up! You caught ${caught}/${goal}.`, 'Try again'); return; }
+    raf = requestAnimationFrame(tick);
+  }
+  const onMove = (e) => { const r = arena.getBoundingClientRect(); basketX = e.clientX - r.left; };
+  const kd = (e) => { keysDown[e.key] = true; }, ku = (e) => { delete keysDown[e.key]; };
+  arena.addEventListener('pointermove', onMove);
+  arena.addEventListener('pointerdown', onMove);
+  window.addEventListener('keydown', kd); window.addEventListener('keyup', ku);
+  overlayMsg(`Catch ${goal} items in ${seconds} seconds!`, 'Start');
+  return () => { stop(); window.removeEventListener('keydown', kd); window.removeEventListener('keyup', ku); };
+}
+
+/* ---------- 2. Cipher / word unscramble ---------- */
+function cipherGame(el, win) {
+  const words = CONFIG.CIPHER_PHRASE.split(' ');
+  let bank, slots;
+  function reset() {
+    slots = words.map(() => null);
+    // shuffle tile order; guard against an already-correct order
+    let order; do { order = shuffle(words.map((w, i) => i)); } while (order.every((v, i) => v === i) && words.length > 1);
+    bank = order;
+  }
+  function render(msg = '', bad = false) {
+    el.innerHTML = `
+      <p class="text-sm text-amber-800 mb-2">Tap the word tiles to place them in order. Tap a placed word to remove it.</p>
+      <div id="k-slots" class="flex flex-wrap gap-2 mb-4 ${bad ? 'shake' : ''}">
+        ${slots.map((t, i) => `<div class="wslot" data-slot="${i}">${t !== null ? `<span class="tile">${words[t]}</span>` : `<span class="text-rose-300 text-sm">${i + 1}</span>`}</div>`).join('')}
+      </div>
+      <div class="flex flex-wrap gap-2 p-3 rounded-xl bg-amber-50 min-h-[56px]">
+        ${bank.map((t) => `<button class="tile" data-tile="${t}">${words[t]}</button>`).join('')}
+      </div>
+      <p class="mt-3 text-sm font-semibold ${bad ? 'text-rose-600' : 'text-amber-700'}">${msg}</p>
+      <button class="btn btn-soft mt-2" id="k-reset">Shuffle again</button>`;
+    el.querySelectorAll('[data-tile]').forEach((b) => b.onclick = () => place(+b.dataset.tile));
+    el.querySelectorAll('[data-slot]').forEach((s) => s.onclick = () => unplace(+s.dataset.slot));
+    $('#k-reset').onclick = () => { reset(); render(); };
+  }
+  function place(t) {
+    const i = slots.indexOf(null); if (i < 0) return;
+    slots[i] = t; bank = bank.filter((x) => x !== t);
+    if (slots.every((s) => s !== null)) check(); else render();
+  }
+  function unplace(i) {
+    if (slots[i] === null) return;
+    bank.push(slots[i]); slots[i] = null; render();
+  }
+  function check() {
+    // compare by text so duplicate words are interchangeable
+    const ok = slots.every((t, i) => words[t] === words[i]);
+    if (ok) { win(); el.innerHTML = winPanel(`“${CONFIG.CIPHER_PHRASE}”`); }
+    else {
+      render('Not quite — try a different order! 💭', true);
+      setTimeout(() => { bank = shuffle(slots); slots = words.map(() => null); render('Tiles returned. Try again!'); }, 1100);
+    }
+  }
+  reset(); render();
+}
+
+/* ---------- 3. Relationship trivia ---------- */
+function triviaGame(el, win) {
+  const wrongLines = ['Hehe, wrong! Try again 🙈', 'Think harder baby 💭', 'Close, but nope! 😘'];
+  const rightLines = ['Yesss!! 💖', 'Yipeee! 🥰', 'Ding ding ding! 🎉'];
+  let n = 0;
+  function render(feedback = '', good = false) {
+    const q = CONFIG.TRIVIA[n];
+    el.innerHTML = `
+      <div class="text-sm text-amber-700 mb-1">Question ${n + 1} of ${CONFIG.TRIVIA.length}</div>
+      <div class="font-bold text-lg mb-3">${q.q}</div>
+      <div class="grid gap-2">${q.options.map((o, i) => `<button class="tile text-left" data-opt="${i}" ${good ? 'disabled' : ''}>${o}</button>`).join('')}</div>
+      <p class="mt-3 font-semibold ${good ? 'text-green-600' : 'text-rose-500'} min-h-[1.5rem]">${feedback}</p>
+      ${good ? '<button class="btn" id="t-next">Next</button>' : ''}`;
+    el.querySelectorAll('[data-opt]').forEach((b) => b.onclick = () => answer(+b.dataset.opt, b));
+    const next = $('#t-next');
+    if (next) next.onclick = () => {
+      n++;
+      if (n >= CONFIG.TRIVIA.length) {
+        win();
+        el.innerHTML = `<div class="rounded-2xl bg-gradient-to-r from-rose-100 to-amber-100 border-2 border-rose-300 p-4 mb-4 text-center text-lg font-bold text-rose-700 pop">${CONFIG.TRIVIA_REVEAL}</div>` + winPanel('Perfect score! 💯');
+      } else render();
+    };
+  }
+  function answer(i, btn) {
+    if (i === CONFIG.TRIVIA[n].answer) render(rightLines[Math.floor(Math.random() * rightLines.length)], true);
+    else render(CONFIG.TRIVIA[n].failMsg || wrongLines[Math.floor(Math.random() * wrongLines.length)]);
+  }
+  render();
+}
+
+/* ---------- 4. Where's Waldo ---------- */
+function waldoGame(el, win) {
+  const W = 600, H = 400, { target, targetName, decoys } = CONFIG.WALDO;
+  const tx = rand(40, W - 40), ty = rand(50, H - 30);
+  // Busy scene: lots of small randomly placed emoji, target hidden among them
+  let scene = '';
+  for (let i = 0; i < 220; i++) {
+    const size = rand(16, 30), e = decoys[Math.floor(Math.random() * decoys.length)];
+    scene += `<text x="${rand(10, W - 10).toFixed(0)}" y="${rand(20, H - 5).toFixed(0)}" font-size="${size.toFixed(0)}" opacity=".85" style="pointer-events:none">${e}</text>`;
+  }
+  el.innerHTML = `
+    <p class="text-sm text-amber-800 mb-2">Find <b>${targetName}</b> ${target} hiding in the crowd!</p>
+    <svg id="w-svg" viewBox="0 0 ${W} ${H}" class="w-full rounded-xl border-2 border-rose-200 bg-gradient-to-br from-rose-50 to-amber-50 cursor-crosshair">
+      ${scene}
+      <text x="${tx}" y="${ty}" font-size="20" text-anchor="middle" style="pointer-events:none">${target}</text>
+      <g id="w-fx"></g>
+    </svg>
+    <div class="flex items-center gap-3 mt-3"><button class="btn btn-soft" id="w-hint">💡 Hint</button><span id="w-msg" class="text-sm font-semibold text-amber-700"></span></div>`;
+  const svg = $('#w-svg'), fx = $('#w-fx'), msg = $('#w-msg');
+  svg.addEventListener('click', (e) => {
+    const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+    const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+    if (Math.hypot(p.x - tx, p.y - (ty - 7)) < 22) {
+      win(); el.innerHTML = winPanel(`You found ${targetName}! ${target}`);
+    } else {
+      msg.textContent = 'Nope, keep looking! 👀';
+      fx.insertAdjacentHTML('beforeend', `<text x="${p.x}" y="${p.y}" font-size="16" text-anchor="middle">❌</text>`);
+      setTimeout(() => fx.firstChild && fx.removeChild(fx.firstChild), 800);
+    }
+  });
+  $('#w-hint').onclick = () => {
+    // Pulsing ring around a spot offset from the target (so it's a hint, not a giveaway)
+    const hx = Math.max(50, Math.min(W - 50, tx + rand(-25, 25))), hy = Math.max(50, Math.min(H - 50, ty + rand(-25, 25)));
+    fx.innerHTML = `<circle class="hint-ring" cx="${hx}" cy="${hy}"/>`;
+    msg.textContent = 'Look near the glowing ring…';
+    setTimeout(() => (fx.innerHTML = ''), 3000);
+  };
+}
+
+/* =====================================================================
+   RESET + INIT
+   ===================================================================== */
+$('#reset').onclick = () => {
+  if (!confirm('Reset all progress?')) return;
+  state = defaultState(); selected = null; saveState(); renderAll();
+};
+
+renderAll();
+// If the page is reloaded after solving, the grid is already shown seamless.
+</script>
+</body>
+</html>
